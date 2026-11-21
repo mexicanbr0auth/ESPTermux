@@ -6,6 +6,7 @@ This is an audit, not a claim that rewriting binary strings makes packages reloc
 import argparse
 import collections
 import pathlib
+import sys
 import zipfile
 
 OLD = b'/data/data/com.termux/files/usr'
@@ -49,6 +50,12 @@ def audit(path):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('archives', nargs='+', type=pathlib.Path)
+    parser.add_argument('--require-relocatable', action='store_true', help='Fail if any original prefix is embedded')
     args = parser.parse_args()
+    has_old_prefix = False
     for archive in args.archives:
-        audit(archive)
+        counts = audit(archive)
+        has_old_prefix = has_old_prefix or bool(counts)
+    if args.require_relocatable and has_old_prefix:
+        print("ERROR: Upstream prefix remains in bootstrap; do not publish as working ESPTermux.", file=sys.stderr)
+        sys.exit(1)

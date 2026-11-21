@@ -17,3 +17,13 @@ This is a **development scaffold**, not yet a functional independent Termux dist
 5. This project preserves normal terminal usage goals, but compatibility requires a complete rebuilt bootstrap and package ecosystem.
 
 Upstream project: https://github.com/termux/termux-app (GPL-3.0).
+
+## Release gate
+
+The CI build is **diagnostic only** until a rebuilt bootstrap passes
+`python3 scripts/audit_bootstrap.py --require-relocatable bootstrap-*.zip`.
+A Gradle success alone is not a release. The bundled upstream bootstrap still
+contains hundreds of hardcoded old-prefix references, including native ELF
+executables. Scripts and `LD_LIBRARY_PATH` workarounds are not a replacement
+for rebuilding the binaries and package repository for this application ID.
+The audit gate is intentionally strict and will currently fail.
