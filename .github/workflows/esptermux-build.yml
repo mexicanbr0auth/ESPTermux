@@ -24,7 +24,7 @@ jobs:
           python3 scripts/audit_bootstrap.py app/src/main/cpp/bootstrap-*.zip | tee bootstrap-audit.txt
       - name: Verify bootstrap is independent of original Termux
         run: python3 scripts/audit_bootstrap.py --require-relocatable app/src/main/cpp/bootstrap-*.zip
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: esptermux-diagnostic-build-NOT-READY
