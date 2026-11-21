@@ -198,7 +198,7 @@ final class TermuxInstaller {
                                     }
                                     // Upstream bootstrap scripts have absolute Termux shebangs.
                                     // Rewrite text scripts, never ELF binaries or arbitrary binary data.
-                                    rewriteBootstrapScriptShebang(targetFile);
+                                    rewriteBootstrapTextPaths(targetFile);
                                     if (zipEntryName.startsWith("bin/") || zipEntryName.startsWith("libexec") ||
                                         zipEntryName.startsWith("lib/apt/apt-helper") || zipEntryName.startsWith("lib/apt/methods")) {
                                         //noinspection OctalInteger
@@ -380,28 +380,19 @@ final class TermuxInstaller {
         return FileUtils.createDirectoryFile(directory.getAbsolutePath());
     }
 
-    /** Rewrites the interpreter of bootstrap shell scripts for this app's private prefix. */
-    private static void rewriteBootstrapScriptShebang(File file) throws java.io.IOException {
-        try (java.io.RandomAccessFile raf = new java.io.RandomAccessFile(file, "r")) {
-            if (raf.length() < 3 || raf.length() > 1024 * 1024) return;
-            byte[] prefix = new byte[(int) Math.min(raf.length(), 512)];
-            raf.readFully(prefix);
-            if (prefix[0] != '#' || prefix[1] != '!') return;
-            String beginning = new String(prefix, StandardCharsets.UTF_8);
-            int newline = beginning.indexOf('\n');
-            if (newline < 0) return;
-            String firstLine = beginning.substring(0, newline);
-            if (!firstLine.contains("/data/data/com.termux/files/usr")) return;
-        }
+    /** Relocate plain-text bootstrap configuration and scripts, never ELF/binary files. */
+    private static void rewriteBootstrapTextPaths(File file) throws java.io.IOException {
+        final String oldPrefix = "/data/data/com.termux/files/usr";
+        if (file.length() == 0 || file.length() > 1024 * 1024) return;
         byte[] bytes = Files.readAllBytes(file.toPath());
-        int newline = 0;
-        while (newline < bytes.length && bytes[newline] != '\n') newline++;
-        String shebang = new String(bytes, 0, newline, StandardCharsets.UTF_8);
-        byte[] updated = shebang.replace("/data/data/com.termux/files/usr", TERMUX_PREFIX_DIR_PATH)
-            .getBytes(StandardCharsets.UTF_8);
+        // Refuse ELF and any data with embedded NULs: changing binary string lengths
+        // can corrupt offsets, relocation tables, and compiled-in constants.
+        if (bytes.length >= 4 && bytes[0] == 0x7f && bytes[1] == 'E' && bytes[2] == 'L' && bytes[3] == 'F') return;
+        for (byte value : bytes) if (value == 0) return;
+        String text = new String(bytes, StandardCharsets.UTF_8);
+        if (!text.contains(oldPrefix)) return;
         try (FileOutputStream out = new FileOutputStream(file, false)) {
-            out.write(updated);
-            out.write(bytes, newline, bytes.length - newline);
+            out.write(text.replace(oldPrefix, TERMUX_PREFIX_DIR_PATH).getBytes(StandardCharsets.UTF_8));
         }
     }
 
