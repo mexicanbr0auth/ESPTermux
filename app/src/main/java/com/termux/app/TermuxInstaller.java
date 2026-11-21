@@ -28,6 +28,8 @@ import java.io.ByteArrayInputStream;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.InputStreamReader;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.zip.ZipEntry;
@@ -169,7 +171,7 @@ final class TermuxInstaller {
                                         throw new RuntimeException("Malformed symlink line: " + line);
                                     String oldPath = parts[0];
                                     String newPath = TERMUX_STAGING_PREFIX_DIR_PATH + "/" + parts[1];
-                                    symlinks.add(Pair.create(oldPath, newPath));
+                                    symlinks.add(Pair.create(oldPath.replace("/data/data/com.termux/files/usr", TERMUX_PREFIX_DIR_PATH), newPath));
 
                                     error = ensureDirectoryExists(new File(newPath).getParentFile());
                                     if (error != null) {
@@ -194,6 +196,9 @@ final class TermuxInstaller {
                                         while ((readBytes = zipInput.read(buffer)) != -1)
                                             outStream.write(buffer, 0, readBytes);
                                     }
+                                    // Upstream bootstrap scripts have absolute Termux shebangs.
+                                    // Rewrite text scripts, never ELF binaries or arbitrary binary data.
+                                    rewriteBootstrapScriptShebang(targetFile);
                                     if (zipEntryName.startsWith("bin/") || zipEntryName.startsWith("libexec") ||
                                         zipEntryName.startsWith("lib/apt/apt-helper") || zipEntryName.startsWith("lib/apt/methods")) {
                                         //noinspection OctalInteger
@@ -373,6 +378,31 @@ final class TermuxInstaller {
 
     private static Error ensureDirectoryExists(File directory) {
         return FileUtils.createDirectoryFile(directory.getAbsolutePath());
+    }
+
+    /** Rewrites the interpreter of bootstrap shell scripts for this app's private prefix. */
+    private static void rewriteBootstrapScriptShebang(File file) throws java.io.IOException {
+        try (java.io.RandomAccessFile raf = new java.io.RandomAccessFile(file, "r")) {
+            if (raf.length() < 3 || raf.length() > 1024 * 1024) return;
+            byte[] prefix = new byte[(int) Math.min(raf.length(), 512)];
+            raf.readFully(prefix);
+            if (prefix[0] != '#' || prefix[1] != '!') return;
+            String beginning = new String(prefix, StandardCharsets.UTF_8);
+            int newline = beginning.indexOf('\n');
+            if (newline < 0) return;
+            String firstLine = beginning.substring(0, newline);
+            if (!firstLine.contains("/data/data/com.termux/files/usr")) return;
+        }
+        byte[] bytes = Files.readAllBytes(file.toPath());
+        int newline = 0;
+        while (newline < bytes.length && bytes[newline] != '\n') newline++;
+        String shebang = new String(bytes, 0, newline, StandardCharsets.UTF_8);
+        byte[] updated = shebang.replace("/data/data/com.termux/files/usr", TERMUX_PREFIX_DIR_PATH)
+            .getBytes(StandardCharsets.UTF_8);
+        try (FileOutputStream out = new FileOutputStream(file, false)) {
+            out.write(updated);
+            out.write(bytes, newline, bytes.length - newline);
+        }
     }
 
     public static byte[] loadZipBytes() {
